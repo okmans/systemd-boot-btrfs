@@ -1,78 +1,78 @@
-
 #!/usr/bin/env bash
 
-# check if initramfs is there
-if [ ! "$(find /boot/* -maxdepth 1 -name 'initramfs-linux.img')" ]; then
-    echo "initramfs-linux.img is missing!"
-    exit
+set -e
+
+# check if initrd image is there
+if ! find /boot -maxdepth 1 -name 'initrd-*.img' ; then
+    printf "initrd.img is missing!\n"
+    exit 1
 fi
 
 # check directory
-boot_path=/boot/loader/entries
-if [ ! -d $boot_path ]; then
-    echo "$boot_path does not exist."
-    exit
+boot_path="/boot/efi/loader/entries/"
+if [[ ! -d "$boot_path" ]]; then
+    printf "%s does not exist.\n" "${boot_path}"
+    exit 1
 fi
 
 # get main .conf file
-boot_main_cfg=$(ls -f /boot/loader/entries/ | grep 'main')
-if [[ ! "$boot_main_cfg" ]]; then
-    boot_main_cfg=$(ls -tU -f /boot/loader/entries/ | grep '.conf' | awk 'NR==1 {print $1}')
+boot_main_cfg="$(find "${boot_path}" -maxdepth 1 -type f -name 'main*.conf' -print -quit)"
+if [[ ! -e "$boot_main_cfg" ]]; then
+    boot_main_cfg="$(find "${boot_path}" -type f -name '*.conf' -printf '%T@ %f\n' | sort -n | head -1 | awk '{print $2}')"
 fi
 
-if [[ ! "$boot_main_cfg" ]]; then
-    echo "could not find main-***.conf or oldest lead file."
-    exit
+if [[ -z "$boot_main_cfg" ]]; then
+    printf "could not find main-***.conf or oldest lead file.\n"
+    exit 1
 fi
 
-
-
-
-if [[ ! $(grep -i 'rootflags=' "$boot_path/$boot_main_cfg") ]] ; then
-    echo "your main boot entry file missing the option 'rootflags'"
-    exit
+if ! grep -q -i -e 'rootflags=' "${boot_path}/${boot_main_cfg}" ; then
+    printf "your main boot entry file missing the option 'rootflags'.\n"
+    exit 1
 fi
-
 
 # check bootloader
-if [ ! "$(find /boot -name 'systemd*.efi')" ]; then
-    echo "systemd-boot is not your default boot loader."
+if ! find /boot -name 'systemd*.efi' ; then
+    printf "systemd-boot is not your default boot loader.\n"
+    exit 1
 fi
 
 # delete current snapshot .conf
-boot_snap_name=arch-snapshot-
-boot_snap_end=.conf
-find $boot_path -type f -name "$boot_snap_name*$boot_snap_end" -delete
-boot_path_file_count=$(ls -1 $boot_path | wc -l)
+boot_snap_name="$(basename -s '.conf' "${boot_main_cfg}")"
+boot_snap_end="snap.conf"
+find "$boot_path" -type f -name "${boot_snap_name}*${boot_snap_end}" -delete
+boot_path_file_count="$(find "${boot_path}" -type f -name '*.conf' | wc -l)"
 
+sed_check="$(grep -n -E -e 'title|sort-key|options' "${boot_path}/${boot_main_cfg}" | cut -d ' '  -f 1)"
 
-sed_check=$(grep -n -E 'title|sort-key|options'  "$boot_path/$boot_main_cfg" | cut -d " "  -f 1)
+sed_row_title="$(echo "${sed_check}" | grep -i -E -o -e '[0-9]+:title' | cut -d : -f 1)"
+sed_row_sort="$(echo "${sed_check}" | grep -i -E -o -e '[0-9]+:sort-key' | cut -d : -f 1)"
+sed_row_options="$(echo "${sed_check}" | grep -i -E -o -e '[0-9]+:options' | cut -d : -f 1)"
 
-sed_row_title=$(echo $sed_check | grep -i -E -o '[0-9]+:title' | cut -d : -f 1)
-sed_row_sort=$(echo $sed_check | grep -i -E -o '[0-9]+:sort-key' | cut -d : -f 1)
-sed_row_options=$(echo $sed_check | grep -i -E -o '[0-9]+:options' | cut -d : -f 1)
-
-
-snapshots_path=/.snapshots
-snapshots_inputs=$(find $snapshots_path/* -maxdepth 1 -type f -name 'info.xml')
+snapshots_path="/.snapshots"
+snapshots_inputs="$(find "${snapshots_path}"/* -maxdepth 1 -type f -name 'info.xml')"
 read_info_xml() {
     for i in $1; do
+        title=$(awk -F'[<>]' '/<num>|type|date|description/{printf $3OFS} END {print ""}' "$i")
+        snap_title="Snapshot: ${title}"
+        number=$(echo "${title}" | awk '{print $2}')
 
-        title=$(awk -F'[<>]' '/<num>|type|date|description/{printf $3OFS} END {print ""}' $i)
-        snap_title="Arch Linux Snapshot: $title"
-        number=$(echo $title | awk '{print $2}')
-
-        number=$(($number +$boot_path_file_count))
-        if [[ ${#number} < 2 ]] ; then
-            number="0$number"
+        number=$((number + boot_path_file_count))
+        if [[ ${#number} -lt 2 ]] ; then
+            number="0${number}"
         fi
 
-        snap_subvol=$(echo $1 | sed -e 's|\/\.|@|' -e 's|info\.xml|snapshot|')
-        snap_cfg="$boot_path/$boot_snap_name$number$boot_snap_end"
+        snap_subvol="$(printf '%s\n' "$1" | sed -E -e 's|\/\.|@|' -e 's|info\.xml|snapshot|')"
+        snap_cfg="${boot_path}/${boot_snap_name}-${number}-${boot_snap_end}"
 
-        sed -e "$sed_row_title s|title\s.*|title $snap_title|" -e "$sed_row_sort s|sort-key\s.*|sort-key $number|" -e "$sed_row_options s|rootflags=subvol=[\/@a-zA-Z0-9]\s|rootflags=subvol=$snap_subvol |" "$boot_path/$boot_main_cfg" >$snap_cfg
+        sed -E \
+            -e "$sed_row_title s|title\s.*|title $snap_title|" \
+            -e "$sed_row_sort s|sort-key\s.*|sort-key $number|" \
+            -e "$sed_row_options s|rootflags=subvol=[\/@a-zA-Z0-9]+\s*|rootflags=subvol=$snap_subvol overlayroot=tmpfs |" \
+            "${boot_path}/${boot_main_cfg}" \
+            >"${snap_cfg}"
     done | column -t
 }
-for si in $snapshots_inputs; do
-    read_info_xml $si
+for si in ${snapshots_inputs}; do
+    read_info_xml "$si"
 done

@@ -11,12 +11,13 @@ cp ./systemd/systemd-boot-btrfs.path /etc/systemd/system/systemd-boot-btrfs.path
 systemctl enable --now systemd-boot-btrfs.service
 systemctl enable --now systemd-boot-btrfs.path
 
-boot_main_cfg=$(ls -f /boot/loader/entries/ | grep 'main')
-if [[ ! "$boot_main_cfg" ]]; then
-    boot_main_cfg=$(ls -tU -f /boot/loader/entries/ | grep '.conf' | awk 'NR==1 {print $1}')
+boot_path="/boot/efi/loader/entries/"
+boot_main_cfg="$(find "${boot_path}" -maxdepth 1 -type f -name 'main*.conf' -print -quit)"
+if [[ ! -e "$boot_main_cfg" ]]; then
+    boot_main_cfg="$(find "${boot_path}" -type f -name '*.conf' -printf '%T@ %f\n' | sort -n | head -1 | awk '{print $2}')"
 fi
 
-if [[ ! "$boot_main_cfg" ]]; then
-    echo "could not find main-***.conf or oldest boot laoder file in /boot/loader/entries. you will need that!"
+if [[ ! -e "$boot_main_cfg" ]]; then
+    echo "could not find main-***.conf or oldest boot laoder file in ${boot_path}. you will need that!"
 fi
 echo "install is done."
