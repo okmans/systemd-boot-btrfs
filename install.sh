@@ -14,7 +14,7 @@ systemctl enable --now systemd-boot-btrfs.path
 boot_path="/boot/efi/loader/entries/"
 boot_main_cfg="$(find "${boot_path}" -maxdepth 1 -type f -name 'main*.conf' -print -quit)"
 if [[ ! -e "$boot_main_cfg" ]]; then
-    boot_main_cfg="$(find "${boot_path}" -type f -name '*.conf' -printf '%T@ %f\n' | sort -n | head -1 | awk '{print $2}')"
+    boot_main_cfg="$(find "${boot_path}" -type f -name '*.conf' -printf '%T@ %p\n' | sort -n | head -1 | awk '{print $2}')"
 fi
 
 if [[ ! -e "$boot_main_cfg" ]]; then
