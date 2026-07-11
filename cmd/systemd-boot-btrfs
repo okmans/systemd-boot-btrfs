@@ -9,6 +9,10 @@ err() {
     exit 1
 }
 
+warn() {
+    printf "%s: Warning: %s\n" "$LOG_PREFIX" "$*" >&2
+}
+
 BOOT_DIR="/boot"
 
 initramfs_img="$(find "${BOOT_DIR}" -maxdepth 1 -type f \
@@ -37,7 +41,7 @@ base_conf="$(find "${entries_dir}" -maxdepth 1 -type f \
 }
 
 [ -z "${base_conf}" ] && \
-    err "could not find main-*.conf or the old lead config.\n"
+    warn "could not find main-*.conf or the old lead config."
 
 #if ! grep -q -i -e 'rootflags=' "${entries_dir}/${base_conf}" ; then
 #    printf "your main boot entry file missing the option 'rootflags'.\n"
